@@ -213,6 +213,9 @@ def process(event):
             "cache_read_tokens":  0,
             "cost_usd":           0.0,
             "calls":              0,
+            "last_input_tokens":       0,
+            "last_cache_write_tokens": 0,
+            "last_cache_read_tokens":  0,
         }
 
     sess = sessions[session_id]
@@ -223,6 +226,9 @@ def process(event):
     sess["cache_write_tokens"] += cache_write
     sess["cache_read_tokens"]  += cache_read
     sess["calls"]              += 1
+    sess["last_input_tokens"]       = input_tokens
+    sess["last_cache_write_tokens"] = cache_write
+    sess["last_cache_read_tokens"]  = cache_read
     if call_cost is not None:
         sess["cost_usd"] = round(sess["cost_usd"] + call_cost, 8)
 

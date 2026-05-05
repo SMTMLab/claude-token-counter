@@ -5,11 +5,30 @@ CLAUDE_DIR = os.path.expanduser("~/.claude")
 USAGE_FILE = os.path.join(CLAUDE_DIR, "token_usage.json")
 SESSION_FILE = os.path.join(CLAUDE_DIR, "token_current_session")
 
-RESET = "\033[0m"
-GREEN = "\033[32m"
-CYAN  = "\033[36m"
-DIM   = "\033[2m"
-BOLD  = "\033[1m"
+RESET  = "\033[0m"
+GREEN  = "\033[32m"
+YELLOW = "\033[33m"
+RED    = "\033[31m"
+CYAN   = "\033[36m"
+DIM    = "\033[2m"
+BOLD   = "\033[1m"
+
+CONTEXT_WINDOWS = {
+    "claude-opus-4":   200_000,
+    "claude-sonnet-4": 200_000,
+    "claude-haiku-4":  200_000,
+    "claude-opus-3":   200_000,
+    "claude-sonnet-3": 200_000,
+    "claude-haiku-3":  200_000,
+}
+DEFAULT_CONTEXT = 200_000
+
+
+def _context_window(model):
+    for prefix in sorted(CONTEXT_WINDOWS.keys(), key=len, reverse=True):
+        if model.startswith(prefix):
+            return CONTEXT_WINDOWS[prefix]
+    return DEFAULT_CONTEXT
 
 def _fmt(n):
     if n >= 1_000_000:
@@ -47,11 +66,29 @@ def main():
         sess_in     = sess.get("input_tokens", 0)
         sess_out    = sess.get("output_tokens", 0)
         sess_cache  = sess.get("cache_read_tokens", 0)
+
+        last_in  = sess.get("last_input_tokens", 0)
+        last_cw  = sess.get("last_cache_write_tokens", 0)
+        last_cr  = sess.get("last_cache_read_tokens", 0)
+        model    = sess.get("model", "unknown")
+        ctx_window = _context_window(model)
+        ctx_used   = last_in + last_cw + last_cr
+        ctx_pct    = ctx_used / ctx_window * 100
+
+        if ctx_pct < 50:
+            ctx_color = GREEN
+        elif ctx_pct < 80:
+            ctx_color = YELLOW
+        else:
+            ctx_color = RED
+
+        ctx_str = "{}{:.0f}% ctx{}".format(ctx_color, ctx_pct, RESET)
+
         parts.append(
-            "{}{} session: ${:.4f} · {}↑ {}↓ {}⚡ · {} calls{}".format(
+            "{}{} session: ${:.4f} · {}↑ {}↓ {}⚡ · {} calls · {}{}".format(
                 BOLD, GREEN, sess_cost,
                 _fmt(sess_in), _fmt(sess_out), _fmt(sess_cache),
-                sess_calls, RESET
+                sess_calls, ctx_str, RESET
             )
         )
 
