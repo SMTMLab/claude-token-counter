@@ -85,8 +85,6 @@ def main():
             ctx_color = RED
 
         ctx_str = "{}{:.0f}% ctx{}".format(ctx_color, ctx_pct, RESET)
-        if ctx_pct >= 65:
-            ctx_str += " {}⚠ /save{}".format(RED + BOLD, RESET)
 
         parts.append(
             "{}{} session: ${:.4f} · {}↑ {}↓ {}⚡ · {} calls · {}{}".format(
