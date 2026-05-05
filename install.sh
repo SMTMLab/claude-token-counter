@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — Install the claude-token-counter Stop hook into Claude Code
+# install.sh — Install the claude-token-counter hooks into Claude Code
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
@@ -75,39 +75,32 @@ check_claude_dir() {
 # Install steps
 # ---------------------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-HOOK_SRC="${SCRIPT_DIR}/hooks/token_counter.py"
-HOOK_DST="${HOME}/.claude/hooks/token_counter.py"
-STATUSLINE_SRC="${SCRIPT_DIR}/hooks/token_statusline.py"
-STATUSLINE_DST="${HOME}/.claude/hooks/token_statusline.py"
+HOOKS_DIR="${HOME}/.claude/hooks"
 SETTINGS_FILE="${HOME}/.claude/settings.json"
 
-install_hook_file() {
-    mkdir -p "${HOME}/.claude/hooks"
-    cp "${HOOK_SRC}" "${HOOK_DST}"
-    chmod +x "${HOOK_DST}"
-    success "Copied hook to ${HOOK_DST}"
-    cp "${STATUSLINE_SRC}" "${STATUSLINE_DST}"
-    chmod +x "${STATUSLINE_DST}"
-    success "Copied statusline script to ${STATUSLINE_DST}"
+install_hook_files() {
+    mkdir -p "${HOOKS_DIR}"
+
+    cp "${SCRIPT_DIR}/hooks/token_counter.py"      "${HOOKS_DIR}/token_counter.py"
+    chmod +x "${HOOKS_DIR}/token_counter.py"
+    success "Copied token_counter.py"
+
+    cp "${SCRIPT_DIR}/hooks/token_session_init.py" "${HOOKS_DIR}/token_session_init.py"
+    chmod +x "${HOOKS_DIR}/token_session_init.py"
+    success "Copied token_session_init.py"
+
+    cp "${SCRIPT_DIR}/hooks/token_statusline.py"   "${HOOKS_DIR}/token_statusline.py"
+    chmod +x "${HOOKS_DIR}/token_statusline.py"
+    success "Copied token_statusline.py"
 }
 
 merge_settings() {
-    info "Merging hook entry into ${SETTINGS_FILE} …"
+    info "Merging hooks and statusLine into ${SETTINGS_FILE} …"
 
     python3 - <<'PYEOF'
 import json, os, sys
 
 settings_file = os.path.expanduser("~/.claude/settings.json")
-hook_dst = os.path.expanduser("~/.claude/hooks/token_counter.py")
-
-new_hook = {
-    "type": "command",
-    "command": "python3 ~/.claude/hooks/token_counter.py"
-}
-new_matcher_entry = {
-    "matcher": "",
-    "hooks": [new_hook]
-}
 
 # Load existing settings or start fresh
 if os.path.exists(settings_file):
@@ -122,66 +115,45 @@ if os.path.exists(settings_file):
 else:
     settings = {}
 
-# Navigate to hooks.Stop
 if "hooks" not in settings:
     settings["hooks"] = {}
-if "Stop" not in settings["hooks"]:
-    settings["hooks"]["Stop"] = []
 
-stop_hooks = settings["hooks"]["Stop"]
+def ensure_hook(settings, event, command, marker):
+    """Add command to hooks[event] if not already present (detected by marker string)."""
+    hooks_list = settings["hooks"].setdefault(event, [])
+    for entry in hooks_list:
+        for h in entry.get("hooks", []):
+            if marker in h.get("command", ""):
+                return False  # already registered
+    hooks_list.append({"matcher": "", "hooks": [{"type": "command", "command": command}]})
+    return True
 
-# Check if our command already registered anywhere in Stop
-already_registered = False
-for matcher_entry in stop_hooks:
-    for h in matcher_entry.get("hooks", []):
-        if h.get("type") == "command" and "token_counter.py" in h.get("command", ""):
-            already_registered = True
-            break
+changes = []
 
-if already_registered:
-    print("[ok]    Hook already registered in settings.json — skipping.")
-else:
-    # Append our matcher entry
-    stop_hooks.append(new_matcher_entry)
-    with open(settings_file, "w") as f:
-        json.dump(settings, f, indent=2)
-    print("[ok]    Hook registered in {}".format(settings_file))
+if ensure_hook(settings, "Stop",            "python3 ~/.claude/hooks/token_counter.py $PPID",      "token_counter.py"):
+    changes.append("Stop → token_counter.py")
 
-PYEOF
-}
+if ensure_hook(settings, "UserPromptSubmit","python3 ~/.claude/hooks/token_session_init.py $PPID", "token_session_init.py"):
+    changes.append("UserPromptSubmit → token_session_init.py")
 
-setup_statusline() {
-    info "Configuring statusLine in ${SETTINGS_FILE} …"
+if ensure_hook(settings, "SessionStart",    "python3 ~/.claude/hooks/token_session_init.py $PPID", "token_session_init.py"):
+    changes.append("SessionStart → token_session_init.py")
 
-    python3 - <<'PYEOF'
-import json, os
-
-settings_file = os.path.expanduser("~/.claude/settings.json")
-
-new_statusline = {
-    "type": "command",
-    "command": "python3 ~/.claude/hooks/token_statusline.py"
-}
-
-# Load existing settings or start fresh
-if os.path.exists(settings_file):
-    try:
-        with open(settings_file, "r") as f:
-            settings = json.load(f)
-    except Exception as e:
-        print("[warn]  Could not parse {}: {}. Skipping statusLine setup.".format(settings_file, e))
-        raise SystemExit(0)
-else:
-    settings = {}
-
-existing = settings.get("statusLine", {})
-if existing.get("command", "") == new_statusline["command"]:
-    print("[ok]    statusLine already configured — skipping.")
-else:
+# statusLine
+new_statusline = {"type": "command", "command": "python3 ~/.claude/hooks/token_statusline.py $PPID"}
+existing_cmd = settings.get("statusLine", {}).get("command", "")
+if "token_statusline.py" not in existing_cmd:
     settings["statusLine"] = new_statusline
-    with open(settings_file, "w") as f:
-        json.dump(settings, f, indent=2)
-    print("[ok]    statusLine configured in {}".format(settings_file))
+    changes.append("statusLine → token_statusline.py")
+
+with open(settings_file, "w") as f:
+    json.dump(settings, f, indent=2)
+
+if changes:
+    for c in changes:
+        print("[ok]    Registered: {}".format(c))
+else:
+    print("[ok]    All hooks already registered — nothing changed.")
 
 PYEOF
 }
@@ -191,11 +163,11 @@ PYEOF
 # ---------------------------------------------------------------------------
 run_smoke_test() {
     info "Running smoke test …"
-    local mock_json='{"session_id":"install-test","model":"claude-sonnet-4-5","usage":{"input_tokens":1200,"output_tokens":340,"cache_creation_input_tokens":0,"cache_read_input_tokens":800}}'
-    if echo "$mock_json" | python3 "${HOOK_DST}"; then
-        success "Smoke test passed"
+    local mock_json='{"session_id":"install-test","transcript_path":""}'
+    if echo "$mock_json" | python3 "${HOOKS_DIR}/token_session_init.py" 2>/dev/null; then
+        success "Smoke test passed (token_session_init)"
     else
-        warn "Smoke test exited with non-zero status — check ${HOME}/.claude/token_usage_errors.log"
+        warn "Smoke test failed — check ${HOME}/.claude/token_usage_errors.log"
     fi
 }
 
@@ -208,22 +180,19 @@ main() {
     detect_platform
     check_python3
     check_claude_dir
-    install_hook_file
+    install_hook_files
     merge_settings
-    setup_statusline
     run_smoke_test
 
     echo ""
     echo -e "${BOLD}Installation complete.${NC}"
     echo ""
-    echo "  Hook script : ${HOOK_DST}"
-    echo "  Statusline  : ${STATUSLINE_DST}"
-    echo "  Settings    : ${SETTINGS_FILE}"
-    echo "  Usage data  : ${HOME}/.claude/token_usage.json"
-    echo "  Error log   : ${HOME}/.claude/token_usage_errors.log"
+    echo "  Hooks dir  : ${HOOKS_DIR}"
+    echo "  Settings   : ${SETTINGS_FILE}"
+    echo "  Usage data : ${HOME}/.claude/token_usage.json"
+    echo "  Error log  : ${HOME}/.claude/token_usage_errors.log"
     echo ""
-    echo "The hook will run automatically after every Claude Code session stop."
-    echo "The statusline will appear in Claude Code's status bar after restart."
+    echo "Restart Claude Code for the hooks to take effect."
 }
 
 main "$@"
