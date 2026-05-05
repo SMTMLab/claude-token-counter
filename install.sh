@@ -119,12 +119,15 @@ if "hooks" not in settings:
     settings["hooks"] = {}
 
 def ensure_hook(settings, event, command, marker):
-    """Add command to hooks[event] if not already present (detected by marker string)."""
+    """Add or update command in hooks[event] (matched by marker string)."""
     hooks_list = settings["hooks"].setdefault(event, [])
     for entry in hooks_list:
         for h in entry.get("hooks", []):
             if marker in h.get("command", ""):
-                return False  # already registered
+                if h["command"] == command:
+                    return False  # already correct
+                h["command"] = command  # upgrade: update to current command
+                return True
     hooks_list.append({"matcher": "", "hooks": [{"type": "command", "command": command}]})
     return True
 
@@ -142,7 +145,7 @@ if ensure_hook(settings, "SessionStart",    "python3 ~/.claude/hooks/token_sessi
 # statusLine
 new_statusline = {"type": "command", "command": "python3 ~/.claude/hooks/token_statusline.py $PPID"}
 existing_cmd = settings.get("statusLine", {}).get("command", "")
-if "token_statusline.py" not in existing_cmd:
+if existing_cmd != new_statusline["command"]:
     settings["statusLine"] = new_statusline
     changes.append("statusLine → token_statusline.py")
 
