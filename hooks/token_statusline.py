@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 import json, os, sys
 
+
+
 CLAUDE_DIR = os.path.expanduser("~/.claude")
 USAGE_FILE = os.path.join(CLAUDE_DIR, "token_usage.json")
-SESSION_FILE = os.path.join(CLAUDE_DIR, "token_current_session")
 
 RESET  = "\033[0m"
 GREEN  = "\033[32m"
@@ -47,15 +48,16 @@ def main():
     total = data.get("total", {})
     sessions = data.get("sessions", {})
 
-    # Try to get current session
     sess = None
-    try:
-        with open(SESSION_FILE) as f:
-            sid = f.read().strip()
-        if sid and sid in sessions:
-            sess = sessions[sid]
-    except Exception:
-        pass
+    if sessions:
+        ppid = sys.argv[1] if len(sys.argv) > 1 else str(os.getppid())
+        try:
+            with open("/tmp/claude_session_{}".format(ppid)) as f:
+                content = f.read().strip().split('\n', 1)
+            pinned_sid = content[0]
+            sess = sessions.get(pinned_sid)
+        except Exception:
+            pass
 
     # Format: show session cost + total cost + calls
     parts = []
@@ -75,14 +77,16 @@ def main():
         ctx_used   = last_in + last_cw + last_cr
         ctx_pct    = ctx_used / ctx_window * 100
 
-        if ctx_pct < 50:
+        if ctx_pct < 40:
             ctx_color = GREEN
-        elif ctx_pct < 80:
+        elif ctx_pct < 65:
             ctx_color = YELLOW
         else:
             ctx_color = RED
 
         ctx_str = "{}{:.0f}% ctx{}".format(ctx_color, ctx_pct, RESET)
+        if ctx_pct >= 65:
+            ctx_str += " {}⚠ /save{}".format(RED + BOLD, RESET)
 
         parts.append(
             "{}{} session: ${:.4f} · {}↑ {}↓ {}⚡ · {} calls · {}{}".format(

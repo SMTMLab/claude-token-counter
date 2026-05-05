@@ -132,25 +132,33 @@ def _extract_from_transcript(transcript_path):
     """
     Read the JSONL transcript and return (model, usage) from the last
     assistant entry.  Returns ("unknown", {}) on any failure.
+    Retries up to 5 times with 200ms delay — Stop fires before Claude Code
+    finishes writing the response to the JSONL.
     """
-    try:
-        with open(transcript_path, "r", encoding="utf-8") as f:
-            lines = f.readlines()
-    except Exception as e:
-        _log_error("Could not read transcript {}: {}".format(transcript_path, e))
-        return "unknown", {}
-
-    last_entry = None
-    for line in lines:
-        line = line.strip()
-        if not line:
-            continue
+    import time
+    for attempt in range(5):
         try:
-            entry = json.loads(line)
-        except Exception:
-            continue
-        if entry.get("type") == "assistant":
-            last_entry = entry
+            with open(transcript_path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+        except Exception as e:
+            _log_error("Could not read transcript {}: {}".format(transcript_path, e))
+            return "unknown", {}
+
+        last_entry = None
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entry = json.loads(line)
+            except Exception:
+                continue
+            if entry.get("type") == "assistant" and not entry.get("isMeta"):
+                last_entry = entry
+
+        if last_entry is not None:
+            break
+        time.sleep(0.2)
 
     if last_entry is None:
         _log_error("No assistant entry found in transcript: {}".format(transcript_path))
@@ -166,13 +174,6 @@ def _extract_from_transcript(transcript_path):
         return "unknown", {}
 
 
-def _write_current_session(session_id):
-    """Write the current session_id to a file for the statusline to pick up."""
-    try:
-        with open(os.path.join(CLAUDE_DIR, "token_current_session"), "w") as f:
-            f.write(session_id)
-    except Exception:
-        pass
 
 
 def process(event):
@@ -243,7 +244,6 @@ def process(event):
         total["cost_usd"] = round(total["cost_usd"] + call_cost, 8)
 
     _save_usage(data)
-    _write_current_session(session_id)
 
 
 # ---------------------------------------------------------------------------
