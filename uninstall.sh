@@ -46,8 +46,8 @@ try:
     with open(settings_file, "r") as f:
         settings = json.load(f)
 except Exception as e:
-    print("[warn]  Could not parse {}: {}".format(settings_file, e))
-    sys.exit(0)
+    print("[error] Could not parse {}: {}".format(settings_file, e))
+    sys.exit(1)
 
 MARKERS = ("token_counter.py", "token_session_init.py", "token_statusline.py")
 
