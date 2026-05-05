@@ -26,7 +26,7 @@ remove_hook_files() {
             removed=1
         fi
     done
-    [[ $removed -eq 0 ]] && warn "No hook files found — skipping."
+    if [[ $removed -eq 0 ]]; then warn "No hook files found — skipping."; fi
 }
 
 remove_settings_entries() {
