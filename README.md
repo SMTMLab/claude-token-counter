@@ -56,7 +56,7 @@ session: $0.0521 · 8k↑ 2k↓ 4M⚡ · 7 calls · 12% ctx  ·  total: $1.2340 
 |-------|---------|
 | Green | < 40% — plenty of room |
 | Yellow | 40–65% — getting full |
-| Red + `⚠ /save` | ≥ 65% — compaction approaching, save your session |
+| Red | ≥ 65% — compaction approaching, consider saving your session |
 
 > Claude Code compacts at ~80%. The warning fires at 65% to give you time to `/save`.
 
